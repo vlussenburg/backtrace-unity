@@ -79,11 +79,11 @@ namespace Backtrace.Unity.Common
                     return "Linux";
                 case RuntimePlatform.OSXEditor:
                 case RuntimePlatform.OSXPlayer:
-                    return "Mac OS";
+                    return "Mac OS X";
                 case RuntimePlatform.PS3:
-                    return "PS3";
+                    return "ps3";
                 case RuntimePlatform.PS4:
-                    return "PS4";
+                    return "ps4";
                 case RuntimePlatform.TizenPlayer:
                 case RuntimePlatform.SamsungTVPlayer:
                     return "Samsung TV";
@@ -100,7 +100,7 @@ namespace Backtrace.Unity.Common
                 case RuntimePlatform.WSAPlayerARM:
                 case RuntimePlatform.WSAPlayerX64:
                 case RuntimePlatform.WSAPlayerX86:
-                    return "Windows";
+                    return "Windows NT";
                 case RuntimePlatform.XBOX360:
                 case RuntimePlatform.XboxOne:
                     return "Xbox";

@@ -3,10 +3,16 @@ using Backtrace.Unity.Common;
 using Backtrace.Unity.Extensions;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.NetworkInformation;
 using UnityEngine;
+using UnityEngine.Profiling;
 using UnityEngine.SceneManagement;
+
+#if UNITY_IOS
+using UnityEngine.iOS;
+#endif
 
 namespace Backtrace.Unity.Model.JsonData
 {
@@ -34,17 +40,17 @@ namespace Backtrace.Unity.Model.JsonData
         /// <param name="clientAttributes">Client's attributes (report and client)</param>
         public BacktraceAttributes(BacktraceReport report, Dictionary<string, object> clientAttributes)
         {
-            if(clientAttributes == null)
+            if (clientAttributes == null)
             {
                 clientAttributes = new Dictionary<string, object>();
             }
             if (report != null)
             {
                 ConvertAttributes(report, clientAttributes);
-               
+
                 SetExceptionAttributes(report);
             }
-             SetLibraryAttributes(report);
+            SetLibraryAttributes(report);
             //Environment attributes override user attributes            
             SetMachineAttributes();
             SetProcessAttributes();
@@ -104,6 +110,7 @@ namespace Backtrace.Unity.Model.JsonData
             Attributes["application.data_path"] = Application.dataPath;
             Attributes["application.id"] = Application.identifier;
             Attributes["application.installer.name"] = Application.installerName;
+            Attributes["application.installer.mode"] = Application.installMode;
             Attributes["application.internet_reachability"] = Application.internetReachability.ToString();
             Attributes["application.editor"] = Application.isEditor;
             Attributes["application.focused"] = Application.isFocused;
@@ -114,7 +121,12 @@ namespace Backtrace.Unity.Model.JsonData
             Attributes["application.system.language"] = Application.systemLanguage.ToString();
             Attributes["application.unity.version"] = Application.unityVersion;
             Attributes["application.temporary_cache"] = Application.temporaryCachePath;
+            Attributes["application.buildid"] = Application.buildGUID;
             Attributes["application.debug"] = Debug.isDebugBuild;
+            Attributes["application.dpi"] = Screen.dpi.ToString(CultureInfo.InvariantCulture);
+            Attributes["application.fullscreen"] = Screen.fullScreen;
+            Attributes["application.orientation"] = Screen.orientation.ToString();
+            Attributes["application.framerate"] = Application.targetFrameRate.ToString();
         }
 
         /// <summary>
@@ -233,14 +245,15 @@ namespace Backtrace.Unity.Model.JsonData
 
             Attributes["graphic.driver.version"] = SystemInfo.graphicsDeviceVersion;
             Attributes["graphic.driver.version"] = SystemInfo.graphicsDeviceVersion;
+            Attributes["graphic.texture.size.max"] = SystemInfo.maxTextureSize;
+
 
             Attributes["graphic.memory"] = SystemInfo.graphicsMemorySize;
             Attributes["graphic.multithreaded"] = SystemInfo.graphicsMultiThreaded;
 
             Attributes["graphic.shader"] = SystemInfo.graphicsShaderLevel;
             Attributes["graphic.topUv"] = SystemInfo.graphicsUVStartsAtTop;
-
-
+            Attributes["graphic.famepersec"] = 1.0f / Time.deltaTime;
         }
         /// <summary>
         /// Set attributes about current machine
@@ -257,6 +270,18 @@ namespace Backtrace.Unity.Model.JsonData
             if (SystemInfo.deviceModel != SystemInfo.unsupportedIdentifier)
             {
                 Attributes["device.model"] = SystemInfo.deviceModel;
+#if UNITY_IOS
+                Attributes["device.generation"] = Device.generation.ToString();
+                if (Device.generation != DeviceGeneration.Unknown)
+                {
+                    Attributes["device.sysversion"] = Device.systemVersion;
+                    Attributes["device.vendorid"] = Device.vendorIdentifier;
+                    Attributes["device.advertisingtracking"] = Device.advertisingTrackingEnabled;
+                    Attributes["device.advertisingid"] = Device.advertisingIdentifier;
+                }
+#endif
+
+
                 // This is typically the "name" of the device as it appears on the networks.
                 Attributes["device.name"] = SystemInfo.deviceName;
                 Attributes["device.type"] = SystemInfo.deviceType.ToString();
