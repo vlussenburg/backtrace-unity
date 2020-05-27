@@ -12,6 +12,7 @@ namespace Backtrace.Unity.Runtime.Native.Android
         private const string _namespace = "backtrace.io.backtrace_unity_android_plugin";
         private readonly string _nativeAttributesPath = string.Format("{0}.{1}", _namespace, "BacktraceAttributes");
         private readonly string _anrPath = string.Format("{0}.{1}", _namespace, "BacktraceANRWatchdog");
+        private readonly string _ndkPath = string.Format("backtraceio.library.base.{1}", _namespace, "BacktraceBase");
 
         /// <summary>
         /// Determine if android integration should be enabled
@@ -28,6 +29,7 @@ namespace Backtrace.Unity.Runtime.Native.Android
             {
                 HandleAnr(gameObjectName, "OnAnrDetected");
             }
+            HandleNdk(gameObjectName, "OnNdkCrash");
         }
 
         /// <summary>
@@ -73,6 +75,12 @@ namespace Backtrace.Unity.Runtime.Native.Android
         {
             _anrWatcher = new AndroidJavaObject(_anrPath);
             _anrWatcher.CallStatic("watch", gameObjectName, callbackName);
+        }
+
+        public void HandleNdk(string gameObjectName, string callbackName)
+        {
+            _anrWatcher = new AndroidJavaObject(_ndkPath);
+            _anrWatcher.CallStatic("init", gameObjectName, callbackName);
         }
     }
 }

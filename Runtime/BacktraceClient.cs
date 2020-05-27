@@ -413,12 +413,20 @@ namespace Backtrace.Unity
 
 #if UNITY_ANDROID
         /// <summary>
-        /// ANR Detection event. This method will be replaced by Backtrace-Android soon native API.
+        /// ANR Detection event. This method will be replaced by Backtrace-Android native API soon.
         /// </summary>
         /// <param name="stackTrace">Main thread stack trace</param>
         internal void OnAnrDetected(string stackTrace)
         {
             SendUnhandledException("ANRException: Blocked thread detected", stackTrace);
+        }
+
+        /// <summary>
+        /// NDK Crash event. This method will be replaced by Backtrace-Android native API soon .
+        /// </summary>
+        internal void OnNdkCrash(string fullInfo)
+        {
+            SendUnhandledException(fullInfo, fullInfo);
         }
 #endif
 

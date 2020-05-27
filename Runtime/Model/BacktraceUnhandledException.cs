@@ -113,7 +113,7 @@ namespace Backtrace.Unity.Model
                 }
 
                 //methodname index should be greater than 0 AND '(' should be before ')'
-                if (methodNameEndIndex < 1 && frameString[methodNameEndIndex - 1] != '(')
+                if (methodNameEndIndex < 1 || frameString[methodNameEndIndex - 1] != '(')
                 {
                     //invalid stack frame
                     return;
