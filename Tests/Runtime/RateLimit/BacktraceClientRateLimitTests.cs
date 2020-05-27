@@ -8,7 +8,7 @@ using UnityEngine.TestTools;
 
 namespace Tests
 {
-    public class RateLimitTests: BacktraceBaseTest
+    public class BacktraceClientRateLimitTests: BacktraceBaseTest
     {
         private const int CLIENT_RATE_LIMIT = 3;
 
@@ -20,6 +20,8 @@ namespace Tests
             BacktraceClient.SetClientReportLimit(CLIENT_RATE_LIMIT);
             AfterSetup();
         }
+
+
         [TestCase(5)]
         [TestCase(10)]
         [TestCase(20)]
@@ -46,8 +48,8 @@ namespace Tests
             Assert.AreEqual(0, skippedReports);
         }
 
-        [UnityTest]
-        public IEnumerator TestReportLimit_TestSendingMessage_SkippProcessingReports()
+        [Test]
+        public void TestReportLimit_TestSendingMessage_SkippProcessingReports()
         {
             BacktraceClient.SetClientReportLimit(CLIENT_RATE_LIMIT);
             int totalNumberOfReports = 5;
@@ -70,7 +72,6 @@ namespace Tests
             Assert.AreEqual(totalNumberOfReports, maximumNumberOfRetries + skippedReports);
             Assert.AreEqual(maximumNumberOfRetries, CLIENT_RATE_LIMIT);
             Assert.AreEqual(totalNumberOfReports - CLIENT_RATE_LIMIT, skippedReports);
-            yield return null;
         }
 
         [UnityTest]

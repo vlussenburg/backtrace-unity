@@ -1,8 +1,10 @@
-﻿using Backtrace.Unity.Model;
+﻿using Backtrace.Unity.Common;
+using Backtrace.Unity.Model;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleToAttribute("Backtrace.Unity.Tests.Runtime")]
 namespace Backtrace.Unity.Services
 {
     /// <summary>
@@ -17,9 +19,14 @@ namespace Backtrace.Unity.Services
         internal readonly Queue<long> _reportQueue;
 
         /// <summary>
+        /// Lock object
+        /// </summary>
+        internal readonly object _object = new object();
+
+        /// <summary>
         /// Time period used to clear values from report queue.
         /// </summary>
-        private readonly long _queueReportTime = 60;
+        private readonly long _queueReportTime = 20;
 
         /// <summary>
         /// Determine if watcher is enabled.
@@ -77,16 +84,19 @@ namespace Backtrace.Unity.Services
             {
                 return true;
             }
-            //clear all reports older than _queReportTime
-            Clear();
-            if (_reportQueue.Count + 1 > _reportPerMin)
+            lock (_object)
             {
-                _limitHit = true;
-                return false;
+                //clear all reports older than _queueReportTime
+                Clear();
+                if (_reportQueue.Count + 1 > _reportPerMin)
+                {
+                    _limitHit = true;
+                    return false;
+                }
+                _limitHit = false;
+                _displayMessage = true;
+                _reportQueue.Enqueue(timestamp);
             }
-            _limitHit = false;
-            _displayMessage = true;
-            _reportQueue.Enqueue(timestamp);
             return true;
         }
 
@@ -106,7 +116,7 @@ namespace Backtrace.Unity.Services
         /// </summary>
         public void DisplayReportLimitHitMessage()
         {
-            if(_limitHit == true && _displayMessage == true)
+            if(ShouldDisplayMessage())
             {
                 _displayMessage = false;
                 Debug.LogWarning(string.Format("Backtrace report limit hit({0}/min) – Ignoring errors for 1 minute",
@@ -114,13 +124,20 @@ namespace Backtrace.Unity.Services
             }
         }
 
+        /// <summary>
+        /// Determine if report limit watcher should display message 
+        /// </summary>
+        internal bool ShouldDisplayMessage()
+        {
+            return _limitHit == true && _displayMessage == true;
+        }
 
         /// <summary>
         /// Remove all records with timestamp older than one minute from now
         /// </summary>
         private void Clear()
         {
-            long currentTime = (long)(DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1))).TotalSeconds;
+            long currentTime = new DateTime().Timestamp();
             bool clear = false;
             while (!clear && _reportQueue.Count != 0)
             {

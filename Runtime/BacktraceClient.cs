@@ -333,7 +333,7 @@ namespace Backtrace.Unity
         {
             if (Enabled == false)
             {
-                Debug.LogWarning("Please enable BacktraceClient first - Please validate Backtrace client initializaiton in Unity IDE.");
+                Debug.LogWarning("Please enable BacktraceClient first.");
                 return;
             }
             //check rate limiting
@@ -349,6 +349,7 @@ namespace Backtrace.Unity
                 _reportLimitWatcher.DisplayReportLimitHitMessage();
                 return;
             }
+            Debug.Log($"{DateTime.Now.ToLongTimeString()} Sending report to Backtrace");
             SendReport(report, sendCallback);
         }
 
