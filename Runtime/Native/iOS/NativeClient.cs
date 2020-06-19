@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
@@ -12,7 +13,7 @@ namespace Backtrace.Unity.Runtime.Native.iOS
 
 
         [DllImport("__Internal", EntryPoint = "GetAttributes")]
-        private static extern string GetiOSAttributes();
+        private static extern string GetiOSAttributes(float[] memoryUsed);
 
         [DllImport("__Internal")]
         private static extern string WatchAnr();
@@ -30,7 +31,7 @@ namespace Backtrace.Unity.Runtime.Native.iOS
 #endif
         public NativeClient(string gameObjectName, bool detectAnrs)
         {
-            if (detectAnrs && _enabled)
+            if (detectAnrs && _enabled && false)
             {
                 HandleAnr(gameObjectName, "OnAnrDetected");
             }
@@ -47,8 +48,16 @@ namespace Backtrace.Unity.Runtime.Native.iOS
             {
                 return result;
             }
+                float[] attributes = new float[1] { 0 };
+                GetiOSAttributes(attributes);
 
-            Debug.Log("iOS attributes are not supported yet");
+            result.Add("mem.used", attributes[0].ToString());
+            result.Add("mem.free", attributes[1].ToString());
+            result.Add("mem.total", attributes[2].ToString());
+
+            result.Add("cpu.count.active", attributes[3].ToString());
+            result.Add("resident.size", attributes[4].ToString());
+            result.Add("virtual size", attributes[5].ToString());
             return result;
         }
 

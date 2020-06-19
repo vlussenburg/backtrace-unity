@@ -1,50 +1,59 @@
+//
+//  BacktraceAttributes.m
+//  Unity-Plugin
+//
+//  Created by Konrad Dysput on 19/06/2020.
+//  Copyright © 2020 Backtrace. All rights reserved.
+//
+
 #import <Foundation/Foundation.h>
 #import <CoreLocation/CoreLocation.h>
+#import <mach/mach.h>
+#import <mach/mach_host.h>
 
-@interface BacktraceAttributes: NSObject 
 
+
+@interface BacktraceAttributes: NSObject
++ (BacktraceAttributes*) create;
+- (void) readMemoryParameters: (float[])vmMemoryUsed;
+- (void) readProcessorParameters;
 @end
 
 @implementation BacktraceAttributes
-    NSDictionary<NSString *, NSString *> GetAttributes(){
-        let processor = try? Processor()
-        let processInfo = ProcessInfo.processInfo
-        let systemVmMemory = try? MemoryInfo.System()
-        let systemSwapMemory = try? MemoryInfo.Swap()
-        let processVmMemory = try? MemoryInfo.Process()
-        
-        return [
-            // cpu
-            "cpu.idle": processor?.cpuTicks.idle,
-            "cpu.nice": processor?.cpuTicks.nice,
-            "cpu.user": processor?.cpuTicks.user,
-            "cpu.system": processor?.cpuTicks.system,
-            "cpu.process.count": processor?.processorSetLoadInfo.task_count,
-            "cpu.thread.count": processor?.processorSetLoadInfo.thread_count,
-            "cpu.uptime": try? System.uptime(),
-            "cpu.count": processInfo.processorCount,
-            "cpu.count.active": processInfo.activeProcessorCount,
-            "cpu.context": processor?.taskEventsInfo.csw,
-            // process
-            "process.thread.count": try? ProcessInfo.numberOfThreads(),
-            "process.age": try? ProcessInfo.age(),
-            // system
-            "system.memory.active": systemVmMemory?.active,
-            "system.memory.inactive": systemVmMemory?.inactive,
-            "system.memory.free": systemVmMemory?.free,
-            "system.memory.used": systemVmMemory?.used,
-            "system.memory.total": systemVmMemory?.total,
-            "system.memory.wired": systemVmMemory?.wired,
-            "system.memory.swapins": systemVmMemory?.swapins,
-            "system.memory.swapouts": systemVmMemory?.swapouts,
-            "system.memory.swap.total": systemSwapMemory?.total,
-            "system.memory.swap.used": systemSwapMemory?.used,
-            "system.memory.swap.free": systemSwapMemory?.free,
-            // vm
-            "process.vm.rss.size": processVmMemory?.resident,
-            "process.vm.rss.peak": processVmMemory?.residentPeak,
-            "process.vm.vma.size": processVmMemory?.virtual
-        ]
+
++ (BacktraceAttributes*)create {
+    static BacktraceAttributes* instance = nil;
+    if(!instance) {
+        instance = [[BacktraceAttributes alloc] init];
+    }
+    return instance;
+}
+
+- (void) readMemoryParameters:  (float[])vmMemoryUsed {
+    mach_port_t host_port;
+    mach_msg_type_number_t host_size;
+    vm_size_t pagesize;
+
+    host_port = mach_host_self();
+    host_size = sizeof(vm_statistics_data_t) / sizeof(integer_t);
+    host_page_size(host_port, &pagesize);
+
+    vm_statistics_data_t vm_stat;
+
+    if (host_statistics(host_port, HOST_VM_INFO, (host_info_t)&vm_stat, &host_size) != KERN_SUCCESS) {
+        NSLog(@"Failed to fetch vm statistics");
     }
     
+    vmMemoryUsed[0] = vm_stat.active_count;
+    NSLog(@"Active memory: %f", vmMemoryUsed[0]);
+
+}
+    
+- (void) readProcessorParameters {
+    NSLog(@"Reading processor parameters");
+}
 @end
+
+void GetAttributes(float memoryUsed[]) {
+    [[BacktraceAttributes create] readMemoryParameters:memoryUsed];
+}
