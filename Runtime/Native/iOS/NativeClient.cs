@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using UnityEngine;
 
 namespace Backtrace.Unity.Runtime.Native.iOS
@@ -8,20 +9,25 @@ namespace Backtrace.Unity.Runtime.Native.iOS
     /// </summary>
     internal class NativeClient : INativeClient
     {
-        // Android native interface paths
-        private const string _namespace = "backtrace.io.backtrace_unity_android_plugin";
-        private readonly string _nativeAttributesPath = string.Format("{0}.{1}", _namespace, "BacktraceAttributes");
-        private readonly string _anrPath = string.Format("{0}.{1}", _namespace, "BacktraceANRWatchdog");
+
+
+        [DllImport("__Internal", EntryPoint = "GetAttributes")]
+        private static extern string GetiOSAttributes();
+
+        [DllImport("__Internal")]
+        private static extern string WatchAnr();
+
+
 
         /// <summary>
-        /// Determine if android integration should be enabled
+        /// Determine if ios integration should be enabled
         /// </summary>
-        private readonly bool _enabled = Application.platform == RuntimePlatform.Android;
-
-        /// <summary>
-        /// Anr watcher object
-        /// </summary>
-        private AndroidJavaObject _anrWatcher;
+        private readonly bool _enabled =
+#if UNITY_IOS
+            true;
+#else
+            false;
+#endif
         public NativeClient(string gameObjectName, bool detectAnrs)
         {
             if (detectAnrs && _enabled)
@@ -42,26 +48,8 @@ namespace Backtrace.Unity.Runtime.Native.iOS
                 return result;
             }
 
-            using (var unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-            using (var activity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity"))
-            using (var context = activity.Call<AndroidJavaObject>("getApplicationContext"))
-            using (var backtraceAttributes = new AndroidJavaObject(_nativeAttributesPath))
-            {
-                var androidAttributes = backtraceAttributes.Call<AndroidJavaObject>("GetAttributes", context);
-                var entrySet = androidAttributes.Call<AndroidJavaObject>("entrySet");
-                var iterator = entrySet.Call<AndroidJavaObject>("iterator");
-                while (iterator.Call<bool>("hasNext"))
-                {
-                    var pair = iterator.Call<AndroidJavaObject>("next");
-
-                    var key = pair.Call<string>("getKey");
-                    var value = pair.Call<string>("getValue");
-                    result[key] = value;
-                }
-
-                return result;
-
-            }
+            Debug.Log("iOS attributes are not supported yet");
+            return result;
         }
 
         /// <summary>
@@ -71,8 +59,7 @@ namespace Backtrace.Unity.Runtime.Native.iOS
         /// <param name="callbackName">Callback function name</param>
         public void HandleAnr(string gameObjectName, string callbackName)
         {
-            _anrWatcher = new AndroidJavaObject(_anrPath);
-            _anrWatcher.CallStatic("watch", gameObjectName, callbackName);
+            WatchAnr();
         }
     }
 }
