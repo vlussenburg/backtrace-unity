@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Backtrace.Unity.Model;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -13,6 +14,7 @@ namespace Backtrace.Unity.Runtime.Native.Android
         private const string _namespace = "backtrace.io.backtrace_unity_android_plugin";
         private readonly string _nativeAttributesPath = string.Format("{0}.{1}", _namespace, "BacktraceAttributes");
         private readonly string _anrPath = string.Format("{0}.{1}", _namespace, "BacktraceANRWatchdog");
+        private readonly string _unhandledExceptionPath = string.Format("{0}.{1}", _namespace, "BacktraceUnhandledExceptionHandler");
 
         /// <summary>
         /// Determine if android integration should be enabled
@@ -23,11 +25,44 @@ namespace Backtrace.Unity.Runtime.Native.Android
         /// Anr watcher object
         /// </summary>
         private AndroidJavaObject _anrWatcher;
-        public NativeClient(string gameObjectName, bool detectAnrs)
+
+        /// <summary>
+        /// Unhandled exception watcher object reference
+        /// </summary>
+        private AndroidJavaObject _unhandledExceptionWatcher;
+
+        public NativeClient(string gameObjectName, BacktraceConfiguration configuration)
         {
-            if (detectAnrs && _enabled)
+            if (!_enabled)
+            {
+                return;
+            }
+            if (configuration.HandleANR)
             {
                 HandleAnr(gameObjectName, "OnAnrDetected");
+            }
+            if (configuration.HandleUnhandledExceptions)
+            {
+                HandleUnhandledExceptions(gameObjectName, "OnAndroidThreadException");
+            }
+
+        }
+
+        /// <summary>
+        /// Setup communication between Untiy and Android to receive information about unhandled thread exceptions
+        /// </summary>
+        /// <param name="gameObjectName">Game object name</param>
+        /// <param name="callbackName">Game object callback method name</param>
+        private void HandleUnhandledExceptions(string gameObjectName, string callbackName)
+        {
+            try
+            {
+                _unhandledExceptionWatcher = new AndroidJavaObject(_unhandledExceptionPath, gameObjectName, callbackName);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning(string.Format("Cannot initialize unhandled exception watcher - reason: {0}", e.Message));
+                _enabled = false;
             }
         }
 

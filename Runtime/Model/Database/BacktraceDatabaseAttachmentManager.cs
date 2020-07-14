@@ -137,6 +137,10 @@ namespace Backtrace.Unity.Model.Database
                 return string.Empty;
             }
             var databaseLogPath = Path.Combine(_settings.DatabasePath, string.Format("{0}.log", backtraceData.Uuid));
+            if(File.Exists(databaseLogPath))
+            {
+                return databaseLogPath;
+            }
             File.Copy(playerLogPath, databaseLogPath);
             return databaseLogPath;
         }

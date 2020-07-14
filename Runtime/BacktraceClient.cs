@@ -8,6 +8,7 @@ using Backtrace.Unity.Types;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading;
 using UnityEngine;
 
 namespace Backtrace.Unity
@@ -188,6 +189,7 @@ namespace Backtrace.Unity
         private int _gameObjectDepth = 0;
 
         private BacktraceLogManager _backtraceLogManager;
+        private Thread MainThread;
 
         public void OnDisable()
         {
@@ -210,7 +212,7 @@ namespace Backtrace.Unity
 
             CaptureUnityMessages();
             _reportLimitWatcher = new ReportLimitWatcher(Convert.ToUInt32(Configuration.ReportPerMin));
-
+            MainThread = Thread.CurrentThread;
 #if UNITY_2018_4_OR_NEWER
 
             BacktraceApi = new BacktraceApi(
@@ -431,6 +433,27 @@ namespace Backtrace.Unity
             _backtraceLogManager.Enqueue(new BacktraceUnityMessage(anrMessage, stackTrace, LogType.Error));
             SendUnhandledException(new BacktraceUnityMessage(anrMessage, stackTrace, LogType.Error));
         }
+
+        /// <summary>
+        /// Android thread unhandled exception.
+        /// </summary>
+        /// <param name="reason">Exception reason in format exception message \n stack trace</param>
+        internal void OnAndroidThreadException(string reason)
+        {
+            if(string.IsNullOrEmpty(reason))
+            {
+                return;
+            }
+            var splitIndex = reason.IndexOf('\n');
+            if(splitIndex == -1)
+            {
+                return;
+            }
+            var message = reason.Substring(0, splitIndex);
+            var stackTrace = reason.Substring(splitIndex);
+            _backtraceLogManager.Enqueue(new BacktraceUnityMessage(message, stackTrace, LogType.Error));
+            SendUnhandledException(new BacktraceUnityMessage(message, stackTrace, LogType.Error));
+        }
 #endif
 
         /// <summary>
@@ -442,6 +465,7 @@ namespace Backtrace.Unity
             if (Configuration.HandleUnhandledExceptions || Configuration.NumberOfLogs != 0)
             {
                 Application.logMessageReceived += HandleUnityMessage;
+                Application.logMessageReceivedThreaded += HandleUnityThreadMessage;
             }
         }
 
@@ -453,6 +477,21 @@ namespace Backtrace.Unity
         /// <param name="type">log type</param>
         internal void HandleUnityMessage(string message, string stackTrace, LogType type)
         {
+            var unityMessage = new BacktraceUnityMessage(message, stackTrace, type);
+            _backtraceLogManager.Enqueue(unityMessage);
+            if (Configuration.HandleUnhandledExceptions && unityMessage.IsUnhandledException())
+            {
+                SendUnhandledException(unityMessage);
+            }
+        }
+
+
+        internal void HandleUnityThreadMessage(string message, string stackTrace, LogType type)
+        {
+            if (Thread.CurrentThread.ManagedThreadId == MainThread.ManagedThreadId)
+            {
+                return;
+            }
             var unityMessage = new BacktraceUnityMessage(message, stackTrace, type);
             _backtraceLogManager.Enqueue(unityMessage);
             if (Configuration.HandleUnhandledExceptions && unityMessage.IsUnhandledException())
