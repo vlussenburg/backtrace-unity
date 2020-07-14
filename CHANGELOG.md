@@ -1,5 +1,8 @@
 # Backtrace Unity Release Notes
 
+## Version 3.1.0
+- `BacktraceClient` now will capture unhandled thread exceptions in Unity and Android
+
 ## Version 3.0.1
 - The `BacktraceDatabase` class will now create database directory before final database validation. Previously, when directory didn't exist, BacktraceDatabase was disabled.
 - The `BacktraceDatabase` field now allows users to pass interpolated string in Database options. Developer can use `${Application.dataPath}` or `${Application.persistentDataPath}` to set path to database. 
