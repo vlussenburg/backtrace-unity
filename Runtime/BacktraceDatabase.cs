@@ -111,6 +111,10 @@ namespace Backtrace.Unity
             {
                 Configuration = GetComponent<BacktraceClient>().Configuration;
             }
+            if (Instance != null)
+            {
+                return;
+            }
             if (Configuration == null || !Configuration.IsValid())
             {
                 Enable = false;
@@ -217,6 +221,15 @@ namespace Backtrace.Unity
         }
 
         /// <summary>
+        /// Validate if BacktraceDatabase is enabled
+        /// </summary>
+        /// <returns>true if BacktraceDatabase is enabled. Otherwise false.</returns>
+        public bool Enabled()
+        {
+            return Enable;
+        }
+
+        /// <summary>
         /// Get settings 
         /// </summary>
         /// <returns>Current database settings</returns>
@@ -261,7 +274,7 @@ namespace Backtrace.Unity
             var record = BacktraceDatabaseContext.Add(data);
             if (!@lock)
             {
-                record.Dispose();
+                record.Unlock();
             }
             return record;
         }
@@ -395,13 +408,13 @@ namespace Backtrace.Unity
                 StartCoroutine(
                      BacktraceApi.Send(backtraceData, record.Attachments, queryAttributes, (BacktraceResult sendResult) =>
                      {
-                         if (sendResult.Status == BacktraceResultStatus.Ok)
+                         record.Unlock();
+                         if (sendResult.Status != BacktraceResultStatus.ServerError && sendResult.Status != BacktraceResultStatus.NetworkError)
                          {
                              Delete(record);
                          }
                          else
                          {
-                             record.Dispose();
                              BacktraceDatabaseContext.IncrementBatchRetry();
                              return;
                          }
@@ -458,9 +471,10 @@ namespace Backtrace.Unity
             {
                 return false;
             }
-            DatabasePath = DatabasePathHelper.GetFullDatabasePath(Configuration.DatabasePath);
+            DatabasePath = Configuration.GetFullDatabasePath();
             if (string.IsNullOrEmpty(DatabasePath))
             {
+                Debug.LogWarning("Backtrace database path is empty.");
                 return false;
             }
 
@@ -473,6 +487,11 @@ namespace Backtrace.Unity
                 databaseDirExists = dirInfo.Exists;
             }
 
+            if (!databaseDirExists)
+            {
+                Debug.LogWarning(string.Format("Backtrace database path doesn't exist. Database path: {0}", DatabasePath));
+
+            }
             return databaseDirExists;
 
         }
@@ -499,7 +518,7 @@ namespace Backtrace.Unity
                 {
                     try
                     {
-                        Debug.Log("Removing record from Backtrace Database path");
+                        Debug.Log("Removing record from Backtrace Database path - invalid record.");
                         record.Delete();
                     }
                     catch (Exception)
@@ -510,7 +529,7 @@ namespace Backtrace.Unity
                 }
                 BacktraceDatabaseContext.Add(record);
                 ValidateDatabaseSize();
-                record.Dispose();
+                record.Unlock();
             }
         }
         /// <summary>
@@ -524,7 +543,8 @@ namespace Backtrace.Unity
             //check how many records are stored in database
             //remove in case when we want to store one more than expected number
             //If record count == 0 then we ignore this condition
-            if (BacktraceDatabaseContext.Count() + 1 > DatabaseSettings.MaxRecordCount && DatabaseSettings.MaxRecordCount != 0 && !BacktraceDatabaseContext.RemoveLastRecord())
+            var noMoreSpaceForReport = BacktraceDatabaseContext.Count() + 1 > DatabaseSettings.MaxRecordCount && DatabaseSettings.MaxRecordCount != 0;
+            if (noMoreSpaceForReport)
             {
                 return false;
             }

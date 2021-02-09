@@ -24,6 +24,11 @@ namespace Backtrace.Unity.Services
         public Func<string, BacktraceData, BacktraceResult> RequestHandler { get; set; }
 
         /// <summary>
+        /// Determine if BacktraceApi should display failure message on HTTP failure.
+        /// </summary>
+        private bool _shouldDisplayFailureMessage = true;
+
+        /// <summary>
         /// Event triggered when server is unvailable
         /// </summary>
         public Action<Exception> OnServerError { get; set; }
@@ -37,7 +42,7 @@ namespace Backtrace.Unity.Services
         /// <summary>
         /// Url to server
         /// </summary>
-        private readonly Uri _serverurl;
+        private readonly Uri _serverUrl;
 
         /// <summary>
         /// Enable performance statistics
@@ -51,9 +56,14 @@ namespace Backtrace.Unity.Services
         {
             get
             {
-                return _serverurl.ToString();
+                return _serverUrl.ToString();
             }
         }
+
+        /// <summary>
+        /// Submission url for uploading minidump files
+        /// </summary>
+        private readonly string _minidumpUrl;
 
 
         private readonly BacktraceCredentials _credentials;
@@ -76,7 +86,8 @@ namespace Backtrace.Unity.Services
             }
 
             _ignoreSslValidation = ignoreSslValidation;
-            _serverurl = credentials.GetSubmissionUrl();
+            _serverUrl = credentials.GetSubmissionUrl();
+            _minidumpUrl = credentials.GetMinidumpSubmissionUrl().ToString();
         }
 
         /// <summary>
@@ -97,19 +108,19 @@ namespace Backtrace.Unity.Services
                ? System.Diagnostics.Stopwatch.StartNew()
                : new System.Diagnostics.Stopwatch();
 
-            var jsonServerUrl = ServerUrl;
-            var minidumpServerUrl = jsonServerUrl.IndexOf("submit.backtrace.io") != -1
-                ? jsonServerUrl.Replace("/json", "/minidump")
-                : jsonServerUrl.Replace("format=json", "format=minidump");
-
+            var minidumpBytes = File.ReadAllBytes(minidumpPath);
+            if (minidumpBytes == null || minidumpBytes.Length == 0)
+            {
+                yield break;
+            }
             List<IMultipartFormSection> formData = new List<IMultipartFormSection>
             {
-                new MultipartFormFileSection("upload_file", File.ReadAllBytes(minidumpPath))
+                new MultipartFormFileSection("upload_file", minidumpBytes)
             };
 
             foreach (var file in attachments)
             {
-                if (File.Exists(file) && new FileInfo(file).Length > 10000000)
+                if (File.Exists(file) && new FileInfo(file).Length < 10000000)
                 {
                     formData.Add(new MultipartFormFileSection(
                         string.Format("attachment__{0}", Path.GetFileName(file)),
@@ -118,13 +129,16 @@ namespace Backtrace.Unity.Services
             }
 
             yield return new WaitForEndOfFrame();
-
-            var boundaryId = string.Format("----------{0:N}", Guid.NewGuid());
-            var boundaryIdBytes = Encoding.ASCII.GetBytes(boundaryId);
-
-            using (var request = UnityWebRequest.Post(minidumpServerUrl, formData, boundaryIdBytes))
+            var boundaryIdBytes = UnityWebRequest.GenerateBoundary();
+            using (var request = UnityWebRequest.Post(_minidumpUrl, formData, boundaryIdBytes))
             {
-                request.SetRequestHeader("Content-Type", "multipart/form-data; boundary=" + boundaryId);
+#if UNITY_2018_4_OR_NEWER
+                if (_ignoreSslValidation)
+                {
+                    request.certificateHandler = new BacktraceSelfSSLCertificateHandler();
+                }
+#endif
+                request.SetRequestHeader("Content-Type", string.Format("multipart/form-data; boundary={0}", Encoding.UTF8.GetString(boundaryIdBytes)));
                 request.timeout = 15000;
                 yield return request.SendWebRequest();
                 var result = request.isNetworkError || request.isHttpError
@@ -203,11 +217,28 @@ namespace Backtrace.Unity.Services
               : new System.Diagnostics.Stopwatch();
 
             var requestUrl = queryAttributes != null
-                ? GetParametrizedQuery(queryAttributes)
+                ? GetParametrizedQuery(_serverUrl.ToString(), queryAttributes)
                 : ServerUrl;
 
 
-            using (var request = new UnityWebRequest(requestUrl, "POST"))
+            List<IMultipartFormSection> formData = new List<IMultipartFormSection>
+            {
+                new MultipartFormFileSection("upload_file",  Encoding.UTF8.GetBytes(json), "upload_file.json", "application/json")
+            };
+
+            foreach (var file in attachments)
+            {
+                if (File.Exists(file) && new FileInfo(file).Length < 10000000)
+                {
+                    formData.Add(new MultipartFormFileSection(
+                        string.Format("attachment__{0}", Path.GetFileName(file)),
+                        File.ReadAllBytes(file)));
+                }
+            }
+
+
+            var boundaryIdBytes = UnityWebRequest.GenerateBoundary();
+            using (var request = UnityWebRequest.Post(requestUrl, formData, boundaryIdBytes))
             {
 #if UNITY_2018_4_OR_NEWER
                 if (_ignoreSslValidation)
@@ -215,33 +246,38 @@ namespace Backtrace.Unity.Services
                     request.certificateHandler = new BacktraceSelfSSLCertificateHandler();
                 }
 #endif
+                request.SetRequestHeader("Content-Type", "multipart/form-data; boundary=" + Encoding.UTF8.GetString(boundaryIdBytes));
                 request.timeout = 15000;
-                byte[] bodyRaw = Encoding.UTF8.GetBytes(json);
-                request.uploadHandler = (UploadHandler)new UploadHandlerRaw(bodyRaw);
-                request.downloadHandler = (DownloadHandler)new DownloadHandlerBuffer();
-                request.SetRequestHeader("Content-Type", "application/json");
                 yield return request.SendWebRequest();
 
                 BacktraceResult result;
-                if (request.responseCode == 200)
+                if (request.responseCode == 429)
                 {
-                    result = BacktraceResult.FromJson(request.downloadHandler.text);
-
+                    result = new BacktraceResult()
+                    {
+                        Message = "Server report limit reached",
+                        Status = Types.BacktraceResultStatus.LimitReached
+                    };
                     if (OnServerResponse != null)
                     {
                         OnServerResponse.Invoke(result);
                     }
-                    if (attachments != null && attachments.Count > 0)
+                }
+                else if (request.responseCode == 200 && (!request.isNetworkError || !request.isHttpError))
+                {
+                    result = BacktraceResult.FromJson(request.downloadHandler.text);
+                    _shouldDisplayFailureMessage = true;
+
+                    if (OnServerResponse != null)
                     {
-                        var stack = new Stack<string>(attachments);
-                        yield return SendAttachment(result.RxId, stack);
+                        OnServerResponse.Invoke(result);
                     }
                 }
                 else
                 {
                     PrintLog(request);
                     var exception = new Exception(request.error);
-                    result = BacktraceResult.OnError(exception);
+                    result = BacktraceResult.OnNetworkError(exception);
                     if (OnServerError != null)
                     {
                         OnServerError.Invoke(exception);
@@ -264,63 +300,20 @@ namespace Backtrace.Unity.Services
 
         private void PrintLog(UnityWebRequest request)
         {
-            string responseText = Encoding.UTF8.GetString(request.downloadHandler.data);
+            if (!_shouldDisplayFailureMessage)
+            {
+                return;
+            }
+            _shouldDisplayFailureMessage = false;
             Debug.LogWarning(string.Format("{0}{1}", string.Format("[Backtrace]::Reponse code: {0}, Response text: {1}",
                     request.responseCode,
-                    responseText),
-                "\n Please check provided url to Backtrace service or learn more from our integration guide: https://help.backtrace.io/integration-guides/game-engines/unity-integration-guide"));
+                    request.error),
+                "\n Please check provided url to Backtrace service or learn more from our integration guide: https://support.backtrace.io/hc/en-us/articles/360040515991-Unity-Integration-Guide"));
         }
 
-        private IEnumerator SendAttachment(string rxId, Stack<string> attachments)
+        private string GetParametrizedQuery(string serverUrl, Dictionary<string, string> queryAttributes)
         {
-            if (attachments != null && attachments.Count > 0)
-            {
-                var attachment = attachments.Pop();
-                if (File.Exists(attachment))
-                {
-                    string fileName = Path.GetFileName(attachment);
-                    string serverUrl = GetAttachmentUploadUrl(rxId, fileName);
-                    using (var request = new UnityWebRequest(serverUrl, "POST"))
-                    {
-
-#if UNITY_2018_4_OR_NEWER
-                        if (_ignoreSslValidation)
-                        {
-                            request.certificateHandler = new BacktraceSelfSSLCertificateHandler();
-                        }
-#endif
-                        request.timeout = 45000;
-                        byte[] bodyRaw = File.ReadAllBytes(attachment);
-                        request.uploadHandler = (UploadHandler)new UploadHandlerRaw(bodyRaw);
-                        request.downloadHandler = (DownloadHandler)new DownloadHandlerBuffer();
-                        request.SetRequestHeader("Content-Type", "application/json");
-                        yield return request.SendWebRequest();
-
-                        if (request.responseCode != 200)
-                        {
-                            PrintLog(request);
-                        }
-                    }
-                }
-                yield return SendAttachment(rxId, attachments);
-            }
-        }
-
-        private string GetAttachmentUploadUrl(string rxId, string attachmentName)
-        {
-            return string.IsNullOrEmpty(_credentials.Token)
-                ? string.Format("{0}&object={1}&attachment_name={2}", _credentials.BacktraceHostUri.AbsoluteUri, rxId,
-                    UrlEncode(attachmentName))
-                : string.Format("{0}/api/post?token={1}&object={2}&attachment_name={3}",
-                    _credentials.BacktraceHostUri.AbsoluteUri, _credentials.Token, rxId, UrlEncode(attachmentName));
-
-        }
-
-        private static readonly string reservedCharacters = "!*'();:@&=+$,/?%#[]";
-
-        private string GetParametrizedQuery(Dictionary<string, string> queryAttributes)
-        {
-            var uriBuilder = new UriBuilder(_serverurl);
+            var uriBuilder = new UriBuilder(serverUrl);
             if (queryAttributes == null || !queryAttributes.Any())
             {
                 return uriBuilder.Uri.ToString();
@@ -342,32 +335,10 @@ namespace Backtrace.Unity.Services
                     builder.Append("&");
                 }
                 var queryAttribute = queryAttributes.ElementAt(queryIndex);
-                builder.AppendFormat("{0}={1}", queryAttribute.Key, UrlEncode(queryAttribute.Value));
+                builder.AppendFormat("{0}={1}", queryAttribute.Key, queryAttribute.Value);
             }
             uriBuilder.Query += builder.ToString();
-            return uriBuilder.Uri.ToString();
-        }
-
-        private static string UrlEncode(string value)
-        {
-            if (string.IsNullOrEmpty(value))
-            {
-                return string.Empty;
-            }
-
-            var sb = new StringBuilder();
-            foreach (char @char in value)
-            {
-                if (reservedCharacters.IndexOf(@char) == -1)
-                {
-                    sb.Append(@char);
-                }
-                else
-                {
-                    sb.AppendFormat("%{0:X2}", (int)@char);
-                }
-            }
-            return sb.ToString();
+            return Uri.EscapeUriString(uriBuilder.Uri.ToString());
         }
     }
 }

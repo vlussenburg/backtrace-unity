@@ -1,5 +1,93 @@
 # Backtrace Unity Release Notes
 
+## Version 3.3.0
+- `BacktraceReport` stack trace now includes the file name of the stack frame.
+- Performance improvements:
+  - JSON algorithm performance improvements - avoid analyzing data types.
+  - improved library attributes management.
+  - improved Unity logs management.
+- Support for Low Memory error reports on Anrdoid and iOS (these are sometimes referred to as OOM or Out Of Memory errors). If a low memory situation is detected, backtrace-unity will attempt to generate and submit a native error report to the Backtrace instance. The report will have the `error.type` value of `Low Memory`.
+- New support for hang detection on Android and iOS. If a game experiences non responsiviness after 5 seconds, backtrace-unity will generate an error report to the Backtrace instance. The report will have the `error.type` value of `Hang`.  
+
+
+## Version 3.2.6
+- `BacktraceClient` will apply sampling only to errors lacking exception information.
+- Fixed annotations nullable value.
+- Renamed `BacktraceUnhandledException` classifier, which was generated from a Debug.LogError call, to `error`.
+- Fixed nullable environment annotation value.
+
+## Version 3.2.5
+- Added `BacktraceClient` Initialization method that allows developer to intialize Backtrace integration without adding game object to game scene.
+- Fixed invalid `meta` file for iOS integration for Unity 2019.2.13f1.
+- HTTP communication messages improvements - right now Backtrace-Unity plugin will print only one error message when network failure happen. Backtrace-Unity will stop printing failures until next successfull report upload.
+- Sampling skip fraction - Enables a new random sampling mechanism for BacktraceUnhandledExceptions (errors from Debug.LogError), by setting default sampling  equal to 0.01 - which means only 1% of randomly sampled Debug.LogError reports will be send to Backtrace. If you would like to send all Debug.LogError to Backtrace - please replace 0.01 value with 1. 
+
+**Be aware**
+
+By default Backtrace library will send only 1% of your Debug.LogError reports - please change this value if you would like to send more Debug.LogErrors to server.
+
+
+
+## Version 3.2.4
+- Fixed Backtrace-Unity NDK integration database path.
+
+## Version 3.2.3
+- Backtrace offline database will now store 8 reports by default. Previously this was not set by default.  
+- HTTP client communication improvements
+- Improvements in UPM
+- Updated symbolication strategy on iOS crashes
+
+## Version 3.2.2
+- Fixed native iOS attributes
+
+## Version 3.2.1
+- Android stack trace parser improvements,
+- Fixed Android NDK initialization when database directory doesn't exist,
+- Added Privacy section to Readme
+
+
+## Version 3.2.0
+- This release adds the ability to capture native iOS crashes from Unity games deployed to iOS. The Backtrace Configuration now exposes a setting for games being prepared for iOS to choose `Capture native crashes`. When enabled, the backtrace-unity client will capture and submit native iOS crashes to the configured Backtrace instance. To generate human readable callstacks, game programmers will need to generate and upload appropriate debug symbols.
+- Added default uname.sysname attributes for some platforms. The following is the list of uname.sysname platforms that can be populated. list "Android, IOS, Linux, Mac OS, ps3, ps4, Samsung TV, tvOS, WebGL, WiiU, Switch, Xbox". Note 'Switch' had previously been reported as 'switch'
+- Added a new attribute 'error.type' that allows developers to quickly filter error reports based on the type of error - The list includes "Crash, Message, Hang, Unhandled Exception, Exception".
+- Updated Android NDK libraries used by Unity plugin.
+
+## Version 3.1.2
+- `BacktraceData` allows to edit list of environment variables collected by `BacktraceAnnotations`
+- `SourceCode` object description for PII purpose
+- `Annotations` class exposes EnvironmentVariableCache dictionary - dictionary that stores environment variables collected by library. For example - to replace `USERNAME` environment variable collected by Backtrace library with random string you can easily edit annotations environment varaible and Backtrace-Untiy will reuse them on report creation.
+
+```csharp
+Annotations.EnvironmentVariablesCache["USERNAME"] = "%USERNAME%";
+```
+
+Also you can still use BeforeSend event to edit collected diagnostic data:
+```csharp
+  client.BeforeSend = (BacktraceData data) =>
+  {
+      data.Annotation.EnvironmentVariables["USERNAME"] = "%USERNAME%";
+      return data;
+  }
+```
+
+## Version 3.1.1
+- Prevent erroneously extending backtraceClient attributes with backtraceReport attributes.
+- Removed randomly generated path to assembly from callstacks.
+- Prevent client from multi initialization.
+
+## Version 3.1.0
+This release adds an ability to capture native NDK crashes from Unity games deployed on Android. The Backtrace Configuration now exposes a setting for games being prepared for Android OS to choose `Capture native crashes`. When enabled, Backtrace will capture and symbolicate native stack traces from crashes impacting the Unity Engine or any Unity Engine Plugin.
+
+When develoing for Andriod, Unity users who want to debug native NDK crash report can specify a Backtrace Symbols Server Token to support the optional uploading of debug symbols from Unity Editor to Backtrace during build. Uploaded symbols are needed to generate human readable stack trace with proper function names for identifying issues. 
+
+Backtrace library now allows to set client attributes, that will be included in every report. In addition to that, Backtrace client attributes will be available in the native crashes generated by Android games.
+
+To setup client attributes you can simply type
+```csharp
+BacktraceClient["name-of-attribute"] = "value-of-attribute";
+```
+If you already have dictionary of attributes you can use `SetAttributes` method. 
+
 ## Version 3.0.4
 Preliminary Nintendo Switch support has been introduced. The offline database is not currently supported in this version, but will be included in an upcoming release.
 

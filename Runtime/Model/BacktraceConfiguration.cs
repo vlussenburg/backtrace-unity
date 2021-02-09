@@ -1,5 +1,7 @@
-﻿using Backtrace.Unity.Types;
+﻿using Backtrace.Unity.Common;
+using Backtrace.Unity.Types;
 using System;
+using System.IO;
 using UnityEngine;
 
 namespace Backtrace.Unity.Model
@@ -45,6 +47,16 @@ namespace Backtrace.Unity.Model
         public bool DestroyOnLoad = false;
 
         /// <summary>
+        /// Sampling configuration - fractional sampling allows to drop some % of unhandled exception.
+        /// </summary>
+        [Tooltip("Log random sampling rate - Enables a random sampling mechanism for unhandled exceptions - by default sampling is equal to 0.01 - which means only 1% of randomply sampling reports will be send to Backtrace. \n" +
+            "* 1 - means 100% of unhandled exception reports will be reported by library,\n" +
+            "* 0.1 - means 10% of unhandled exception reports will be reported by library,\n" +
+            "* 0 - means library is going to drop all unhandled exception.")]
+        [Range(0, 1)]
+        public double Sampling = 0.01d;
+
+        /// <summary>
         /// Backtrace report filter type
         /// </summary>
         [Tooltip("Report filter allows to filter specific type of reports. Possible options:\n" +
@@ -78,12 +90,36 @@ namespace Backtrace.Unity.Model
         [Tooltip("Try to find game native crashes and send them on Game startup")]
         public bool SendUnhandledGameCrashesOnGameStartup = true;
 
+#if UNITY_ANDROID || UNITY_IOS
 #if UNITY_ANDROID
+        /// <summary>
+        /// Capture native NDK Crashes.
+        /// </summary>
+        [Tooltip("Capture native NDK Crashes (ANDROID API 21+)")]
+#elif UNITY_IOS
+        /// <summary>
+        /// Capture native iOS Crashes.
+        /// </summary>
+        [Tooltip("Capture native Crashes")]
+#endif
+
+        public bool CaptureNativeCrashes = true;
+#endif
+
+#if UNITY_ANDROID  || UNITY_IOS
         /// <summary>
         /// Handle ANR events - Application not responding
         /// </summary>
         [Tooltip("Handle ANR events - Application not responding")]
         public bool HandleANR = true;
+
+#if UNITY_2019_2_OR_NEWER
+        /// <summary>
+        /// Symbols upload token
+        /// </summary>
+        [Tooltip("Symbols upload token required to upload symbols to Backtrace")]
+        public string SymbolsUploadToken = string.Empty;
+#endif
 #endif
 
         /// <summary>
@@ -97,6 +133,7 @@ namespace Backtrace.Unity.Model
             "* Exception message - Use the exception message as a factor in client-side deduplication.")]
 
         public DeduplicationStrategy DeduplicationStrategy = DeduplicationStrategy.None;
+
 
         /// <summary>
         /// Use normalized exception message instead environment stack trace, when exception doesn't have stack trace
@@ -151,7 +188,7 @@ namespace Backtrace.Unity.Model
         /// Maximum number of stored reports in Database. If value is equal to zero, then limit not exists
         /// </summary>
         [Tooltip("This is one of two limits you can impose for controlling the growth of the offline store. This setting is the maximum number of stored reports in database. If value is equal to zero, then limit not exists, When the limit is reached, the database will remove the oldest entries.")]
-        public int MaxRecordCount;
+        public int MaxRecordCount = 8;
 
         /// <summary>
         /// Database size in MB
@@ -174,6 +211,22 @@ namespace Backtrace.Unity.Model
         /// </summary>
         [Tooltip("This specifies in which order records are sent to the Backtrace server.")]
         public RetryOrder RetryOrder;
+
+        public string GetFullDatabasePath()
+        {
+            return DatabasePathHelper.GetFullDatabasePath(DatabasePath);
+        }
+        public string CrashpadDatabasePath
+        {
+            get
+            {
+                if (!Enabled)
+                {
+                    return string.Empty;
+                }
+                return Path.Combine(GetFullDatabasePath(), "crashpad");
+            }
+        }
 
         public string GetValidServerUrl()
         {

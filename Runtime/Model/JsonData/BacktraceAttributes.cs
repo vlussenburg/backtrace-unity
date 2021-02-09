@@ -20,7 +20,7 @@ namespace Backtrace.Unity.Model.JsonData
         /// <summary>
         /// Get built-in primitive attributes
         /// </summary>
-        public Dictionary<string, string> Attributes = new Dictionary<string, string>();
+        public readonly Dictionary<string, string> Attributes;
 
         private static string _machineId;
         private static string MachineId
@@ -36,28 +36,36 @@ namespace Backtrace.Unity.Model.JsonData
         }
 
 
-        internal const string APPLICATION_ATTRIBUTE_NAME = "application";
         /// <summary>
         /// Create instance of Backtrace Attribute
         /// </summary>
         /// <param name="report">Received report</param>
         /// <param name="clientAttributes">Client's attributes (report and client)</param>
-        public BacktraceAttributes(BacktraceReport report, Dictionary<string, string> clientAttributes)
+        public BacktraceAttributes(BacktraceReport report, Dictionary<string, string> clientAttributes, bool onlyBuiltInAttributes = false)
         {
             if (clientAttributes == null)
             {
                 clientAttributes = new Dictionary<string, string>();
             }
+            Attributes = clientAttributes;
+
             if (report != null)
             {
-                ConvertAttributes(report, clientAttributes);
+                // Add report attributes
+                if (report.Attributes != null)
+                {
+                    foreach (var attribute in report.Attributes)
+                    {
+                        Attributes[attribute.Key] = attribute.Value;
+                    }
+                }
                 SetExceptionAttributes(report);
             }
             //Environment attributes override user attributes     
             SetLibraryAttributes(report);
-            SetMachineAttributes();
-            SetProcessAttributes();
-            SetSceneInformation();
+            SetMachineAttributes(onlyBuiltInAttributes);
+            SetProcessAttributes(onlyBuiltInAttributes);
+            SetSceneInformation(onlyBuiltInAttributes);
         }
         private BacktraceAttributes() { }
 
@@ -69,11 +77,17 @@ namespace Backtrace.Unity.Model.JsonData
         private void SetScriptingBackend()
         {
 #if NET_STANDARD_2_0
-            Attributes["scripting.backend"] = ".NET Standard 2.0";
+            Attributes["api.compatibility"] = ".NET Standard 2.0";
 #elif NET_4_6
-            Attributes["scripting.backend"] = ".NET Framework 4.5";
+            Attributes["api.compatibility"] = ".NET Framework 4.5";
 #else
-            Attributes["scripting.backend"] = ".NET Framework 3.5 equivalent";
+            Attributes["api.compatibility"] = ".NET Framework 3.5 equivalent";
+#endif
+
+#if ENABLE_IL2CPP
+            Attributes["scripting.backend"] = "IL2CPP";
+#else
+            Attributes["scripting.backend"] = "Mono";
 #endif
         }
         /// <summary>
@@ -81,20 +95,24 @@ namespace Backtrace.Unity.Model.JsonData
         /// </summary>
         private void SetLibraryAttributes(BacktraceReport report)
         {
-            if (!string.IsNullOrEmpty(report.Factor))
+            if (report != null)
             {
-                Attributes["_mod_factor"] = report.Factor;
-            }
-            if (!string.IsNullOrEmpty(report.Fingerprint))
-            {
-                Attributes["_mod_fingerprint"] = report.Fingerprint;
+                if (!string.IsNullOrEmpty(report.Factor))
+                {
+                    Attributes["_mod_factor"] = report.Factor;
+                }
+                if (!string.IsNullOrEmpty(report.Fingerprint))
+                {
+                    Attributes["_mod_fingerprint"] = report.Fingerprint;
+                }
             }
 
             Attributes["guid"] = MachineId;
+            Attributes["backtrace.version"] = BacktraceClient.VERSION;
             SetScriptingBackend();
 
             //Base name of application generating the report
-            Attributes[APPLICATION_ATTRIBUTE_NAME] = Application.productName;
+            Attributes["application"] = Application.productName;
             Attributes["application.version"] = Application.version;
             Attributes["application.url"] = Application.absoluteURL;
             Attributes["application.company.name"] = Application.companyName;
@@ -126,7 +144,7 @@ namespace Backtrace.Unity.Model.JsonData
         private static string GenerateMachineId()
         {
 #if !UNITY_WEBGL && !UNITY_SWITCH
-             // DeviceUniqueIdentifier will return "Switch" on Nintendo Switch
+            // DeviceUniqueIdentifier will return "Switch" on Nintendo Switch
             // try to generate random guid instead
             if (SystemInfo.deviceUniqueIdentifier != SystemInfo.unsupportedIdentifier)
             {
@@ -154,21 +172,6 @@ namespace Backtrace.Unity.Model.JsonData
         }
 
         /// <summary>
-        /// Convert custom user attributes
-        /// </summary>
-        /// <param name="report">Received report</param>
-        /// <param name="clientAttributes">Client's attributes (report and client)</param>
-        /// <returns>Dictionary of custom user attributes </returns>
-        private void ConvertAttributes(BacktraceReport report, Dictionary<string, string> clientAttributes)
-        {
-            var reportAttributes = BacktraceReport.ConcatAttributes(report, clientAttributes);
-            foreach (var attribute in reportAttributes)
-            {
-                Attributes[attribute.Key] = attribute.Value;
-            }
-        }
-
-        /// <summary>
         /// Set attributes from exception
         /// </summary>
         internal void SetExceptionAttributes(BacktraceReport report)
@@ -181,16 +184,48 @@ namespace Backtrace.Unity.Model.JsonData
             Attributes["error.message"] = report.ExceptionTypeReport
                 ? report.Exception.Message
                 : report.Message;
+
+            // detect exception type
+            var errorType = "error.type";
+            if (!report.ExceptionTypeReport)
+            {
+                Attributes[errorType] = "Message";
+                return;
+            }
+            if (report.Exception is BacktraceUnhandledException)
+            {
+                var classifier = (report.Exception as BacktraceUnhandledException).Classifier;
+                if (classifier == "ANRException")
+                {
+                    Attributes[errorType] = "Hang";
+                }
+                else if (classifier == "OOMException")
+                {
+                    Attributes[errorType] = "Low Memory";
+                }
+                else
+                {
+                    Attributes[errorType] = "Unhandled exception";
+                }
+            }
+            else
+            {
+                Attributes[errorType] = "Exception";
+            }
         }
 
-        internal void SetSceneInformation()
+        internal void SetSceneInformation(bool onlyBuiltInAttributes = false)
         {
-            //The number of Scenes which have been added to the Build Settings. The Editor will contain Scenes that were open before entering playmode.
+            //The number of Scenes which have been added to the Build Settings. The Editor will contain Scenes that were opened before entering playmode.
             if (SceneManager.sceneCountInBuildSettings > 0)
             {
                 Attributes["scene.count.build"] = SceneManager.sceneCountInBuildSettings.ToString();
             }
             Attributes["scene.count"] = SceneManager.sceneCount.ToString();
+            if (onlyBuiltInAttributes)
+            {
+                return;
+            }
             var activeScene = SceneManager.GetActiveScene();
             Attributes["scene.active"] = activeScene.name;
             Attributes["scene.buildIndex"] = activeScene.buildIndex.ToString();
@@ -206,8 +241,12 @@ namespace Backtrace.Unity.Model.JsonData
         /// <summary>
         /// Set attributes from current process
         /// </summary>
-        private void SetProcessAttributes()
+        private void SetProcessAttributes(bool onlyBuiltInAttributes = false)
         {
+            if (onlyBuiltInAttributes)
+            {
+                return;
+            }
             Attributes["gc.heap.used"] = GC.GetTotalMemory(false).ToString();
             Attributes["process.age"] = Math.Round(Time.realtimeSinceStartup).ToString();
         }
@@ -238,14 +277,17 @@ namespace Backtrace.Unity.Model.JsonData
         /// <summary>
         /// Set attributes about current machine
         /// </summary>
-        private void SetMachineAttributes()
+        private void SetMachineAttributes(bool onlyBuiltInAttributes = false)
         {
-            //collect battery data
-            var batteryLevel = SystemInfo.batteryLevel == -1
-                    ? -1
-                    : SystemInfo.batteryLevel * 100;
-            Attributes["battery.level"] = batteryLevel.ToString();
-            Attributes["battery.status"] = SystemInfo.batteryStatus.ToString();
+            if (onlyBuiltInAttributes)
+            {
+                //collect battery data
+                var batteryLevel = SystemInfo.batteryLevel == -1
+                        ? -1
+                        : SystemInfo.batteryLevel * 100;
+                Attributes["battery.level"] = batteryLevel.ToString();
+                Attributes["battery.status"] = SystemInfo.batteryStatus.ToString();
+            }
 
             if (SystemInfo.deviceModel != SystemInfo.unsupportedIdentifier)
             {
@@ -263,7 +305,7 @@ namespace Backtrace.Unity.Model.JsonData
                 Attributes["uname.machine"] = cpuArchitecture;
             }
             //Operating system name = such as "windows"
-            Attributes["uname.sysname"] = SystemHelper.Name(cpuArchitecture);
+            Attributes["uname.sysname"] = SystemHelper.Name();
 
             //The version of the operating system
             Attributes["uname.version"] = Environment.OSVersion.Version.ToString();

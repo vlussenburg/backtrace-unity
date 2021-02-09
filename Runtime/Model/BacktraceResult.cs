@@ -93,12 +93,12 @@ namespace Backtrace.Unity.Model
         /// <param name="report">Executed report</param>
         /// <param name="exception">Exception</param>
         /// <returns>BacktraceResult with exception information</returns>
-        internal static BacktraceResult OnError(Exception exception)
+        internal static BacktraceResult OnNetworkError(Exception exception)
         {
             return new BacktraceResult()
             {
                 Message = exception.Message,
-                Status = BacktraceResultStatus.ServerError
+                Status = BacktraceResultStatus.NetworkError
             };
         }
 
@@ -114,12 +114,19 @@ namespace Backtrace.Unity.Model
 
         public static BacktraceResult FromJson(string json)
         {
+            if (string.IsNullOrEmpty(json))
+            {
+                return new BacktraceResult()
+                {
+                    Status = BacktraceResultStatus.Empty
+                };
+            }
             var rawResult = JsonUtility.FromJson<BacktraceRawResult>(json);
             var result = new BacktraceResult()
             {
                 response = rawResult.response,
                 _rxId = rawResult._rxid,
-                Status = rawResult.response == "ok" ? BacktraceResultStatus.Ok: BacktraceResultStatus.ServerError
+                Status = rawResult.response == "ok" ? BacktraceResultStatus.Ok : BacktraceResultStatus.ServerError
             };
             return result;
         }

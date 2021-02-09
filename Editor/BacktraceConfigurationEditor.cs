@@ -41,10 +41,16 @@ namespace Backtrace.Unity.Editor
                     serializedObject.FindProperty("IgnoreSslValidation"),
                     new GUIContent(BacktraceConfigurationLabels.LABEL_IGNORE_SSL_VALIDATION));
 #endif
-#if UNITY_ANDROID
-            EditorGUILayout.PropertyField(
-                serializedObject.FindProperty("HandleANR"),
-                 new GUIContent(BacktraceConfigurationLabels.LABEL_HANDLE_ANR));
+#if UNITY_ANDROID || UNITY_IOS
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("HandleANR"),
+                     new GUIContent(BacktraceConfigurationLabels.LABEL_HANDLE_ANR));
+
+#if UNITY_2019_2_OR_NEWER && UNITY_ANDROID
+                EditorGUILayout.PropertyField(
+                   serializedObject.FindProperty("SymbolsUploadToken"),
+                   new GUIContent(BacktraceConfigurationLabels.LABEL_SYMBOLS_UPLOAD_TOKEN));
+#endif
 #endif
                 EditorGUILayout.PropertyField(
                    serializedObject.FindProperty("UseNormalizedExceptionMessage"),
@@ -71,6 +77,9 @@ namespace Backtrace.Unity.Editor
                     serializedObject.FindProperty("DestroyOnLoad"),
                     new GUIContent(BacktraceConfigurationLabels.LABEL_DESTROY_CLIENT_ON_SCENE_LOAD));
 
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("Sampling"),
+                    new GUIContent(BacktraceConfigurationLabels.LABEL_SAMPLING));
 
                 SerializedProperty gameObjectDepth = serializedObject.FindProperty("GameObjectDepth");
                 EditorGUILayout.PropertyField(gameObjectDepth, new GUIContent(BacktraceConfigurationLabels.LABEL_GAME_OBJECT_DEPTH));
@@ -117,6 +126,12 @@ namespace Backtrace.Unity.Editor
                         serializedObject.FindProperty("AddUnityLogToReport"),
                         new GUIContent(BacktraceConfigurationLabels.LABEL_ADD_UNITY_LOG));
 
+#endif
+
+#if UNITY_ANDROID || UNITY_IOS
+                    EditorGUILayout.PropertyField(
+                         serializedObject.FindProperty("CaptureNativeCrashes"),
+                         new GUIContent(BacktraceConfigurationLabels.CAPTURE_NATIVE_CRASHES));
 #endif
                     EditorGUILayout.PropertyField(
                         serializedObject.FindProperty("AutoSendMode"),

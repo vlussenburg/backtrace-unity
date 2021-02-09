@@ -20,7 +20,56 @@ namespace Backtrace.Unity
     {
         public BacktraceConfiguration Configuration;
 
+        public const string VERSION = "3.3.0";
         public bool Enabled { get; private set; }
+
+        /// <summary>
+        /// Client attributes
+        /// </summary>
+        private readonly Dictionary<string, string> _clientAttributes = new Dictionary<string, string>();
+
+        /// <summary>
+        /// Attribute object accessor
+        /// </summary>
+        public string this[string index]
+        {
+            get
+            {
+                return _clientAttributes[index];
+            }
+            set
+            {
+                _clientAttributes[index] = value;
+                if (_nativeClient != null)
+                {
+                    _nativeClient.SetAttribute(index, value);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Set client attributes that will be included in every report
+        /// </summary>
+        /// <param name="attributes">attributes dictionary</param>
+        public void SetAttributes(Dictionary<string, string> attributes)
+        {
+            if (attributes == null)
+            {
+                return;
+            }
+            foreach (var attribute in attributes)
+            {
+                this[attribute.Key] = attribute.Value;
+            }
+        }
+
+        /// <summary>
+        /// Number of client attributes
+        /// </summary>
+        public int GetAttributesCount()
+        {
+            return _clientAttributes.Count;
+        }
 
         /// <summary>
         /// Backtrace client instance.
@@ -213,6 +262,78 @@ namespace Backtrace.Unity
 
         private BacktraceLogManager _backtraceLogManager;
 
+
+        /// <summary>
+        /// Initialize new Backtrace integration
+        /// </summary>
+        /// <param name="configuration">Backtrace configuration scriptable object</param>
+        /// <param name="attributes">Client side attributes</param>
+        /// <param name="gameObjectName">game object name</param>
+        /// <returns>Backtrace client</returns>
+        public static BacktraceClient Initialize(BacktraceConfiguration configuration, Dictionary<string, string> attributes = null, string gameObjectName = "BacktraceClient")
+        {
+            if (string.IsNullOrEmpty(gameObjectName))
+            {
+                throw new ArgumentException("Missing game object name");
+            }
+
+            if (configuration == null || string.IsNullOrEmpty(configuration.ServerUrl))
+            {
+                throw new ArgumentException("Missing valid configuration");
+            }
+
+            if (Instance != null)
+            {
+                return Instance;
+            }
+            var backtrackGameObject = new GameObject(gameObjectName, typeof(BacktraceClient), typeof(BacktraceDatabase));
+            BacktraceClient backtraceClient = backtrackGameObject.GetComponent<BacktraceClient>();
+            backtraceClient.Configuration = configuration;
+            if (configuration.Enabled)
+            {
+                BacktraceDatabase backtraceDatabase = backtrackGameObject.GetComponent<BacktraceDatabase>();
+                backtraceDatabase.Configuration = configuration;
+            }
+            backtrackGameObject.SetActive(true);
+            backtraceClient.Refresh();
+            backtraceClient.SetAttributes(attributes);
+
+            return backtraceClient;
+        }
+
+        /// <summary>
+        /// Initialize new Backtrace integration with database path. Note - database path will be auto created by Backtrace Unity plugin
+        /// </summary>
+        /// <param name="url">Server url</param>
+        /// <param name="databasePath">Database path</param>
+        /// <param name="attributes">Client side attributes</param>
+        /// <param name="gameObjectName">game object name</param>
+        /// <returns>Backtrace client</returns>
+        public static BacktraceClient Initialize(string url, string databasePath, Dictionary<string, string> attributes = null, string gameObjectName = "BacktraceClient")
+        {
+            var configuration = ScriptableObject.CreateInstance<BacktraceConfiguration>();
+            configuration.ServerUrl = url;
+            configuration.Enabled = true;
+            configuration.DatabasePath = databasePath;
+            configuration.CreateDatabase = true;
+            return Initialize(configuration, attributes, gameObjectName);
+        }
+
+        /// <summary>
+        /// Initialize new Backtrace integration
+        /// </summary>
+        /// <param name="url">Server url</param>
+        /// <param name="attributes">Client side attributes</param>
+        /// <param name="gameObjectName">game object name</param>
+        /// <returns>Backtrace client</returns>
+        public static BacktraceClient Initialize(string url, Dictionary<string, string> attributes = null, string gameObjectName = "BacktraceClient")
+        {
+            var configuration = ScriptableObject.CreateInstance<BacktraceConfiguration>();
+            configuration.ServerUrl = url;
+            configuration.Enabled = false;
+            return Initialize(configuration, attributes, gameObjectName);
+        }
+
         public void OnDisable()
         {
             Enabled = false;
@@ -221,6 +342,11 @@ namespace Backtrace.Unity
         public void Refresh()
         {
             if (Configuration == null || !Configuration.IsValid())
+            {
+                return;
+            }
+
+            if (Instance != null)
             {
                 return;
             }
@@ -247,16 +373,25 @@ namespace Backtrace.Unity
                 DontDestroyOnLoad(gameObject);
                 _instance = this;
             }
-            Database = GetComponent<BacktraceDatabase>();
-            if (Database != null)
+            if (Configuration.Enabled)
             {
-                Database.Reload();
-                Database.SetApi(BacktraceApi);
-                Database.SetReportWatcher(_reportLimitWatcher);
+                Database = GetComponent<BacktraceDatabase>();
+                if (Database != null)
+                {
+                    Database.Reload();
+                    Database.SetApi(BacktraceApi);
+                    Database.SetReportWatcher(_reportLimitWatcher);
+                }
             }
 
             _nativeClient = NativeClientFactory.GetNativeClient(Configuration, name);
-
+            if (_nativeClient != null)
+            {
+                foreach (var attribute in _clientAttributes)
+                {
+                    _nativeClient.SetAttribute(attribute.Key, attribute.Value);
+                }
+            }
             if (Configuration.SendUnhandledGameCrashesOnGameStartup && isActiveAndEnabled)
             {
                 var nativeCrashUplaoder = new NativeCrashUploader();
@@ -271,6 +406,25 @@ namespace Backtrace.Unity
         }
 
         /// <summary>
+        /// Update native client internal ANR timer.
+        /// </summary>
+        private void Update()
+        {
+            _nativeClient?.UpdateClientTime(Time.time);
+        }
+
+        private void OnDestroy()
+        {
+            Enabled = false;
+            Application.logMessageReceived -= HandleUnityMessage;
+#if UNITY_ANDROID || UNITY_IOS
+            Application.lowMemory -= HandleLowMemory;
+            _nativeClient?.Disable();
+#endif
+
+        }
+
+        /// <summary>
         /// Change maximum number of reportrs sending per one minute
         /// </summary>
         /// <param name="reportPerMin">Number of reports sending per one minute. If value is equal to zero, there is no request sending to API. Value have to be greater than or equal to 0</param>
@@ -278,7 +432,7 @@ namespace Backtrace.Unity
         {
             if (!Enabled)
             {
-                Debug.LogWarning("Please enable BacktraceClient first - Please validate Backtrace client initializaiton in Unity IDE.");
+                Debug.LogWarning("Please enable BacktraceClient first.");
                 return;
             }
             _reportLimitWatcher.SetClientReportLimit(reportPerMin);
@@ -359,7 +513,7 @@ namespace Backtrace.Unity
         /// <param name="report">Backtrace Report</param>
         /// <param name="sendCallback">Coroutine callback</param>
         /// <returns>IEnumerator</returns>
-        private IEnumerator CollectDataAndSend(BacktraceReport report, Action<BacktraceResult> sendCallback = null)
+        private IEnumerator CollectDataAndSend(BacktraceReport report, Action<BacktraceResult> sendCallback)
         {
             var queryAttributes = new Dictionary<string, string>();
             var stopWatch = EnablePerformanceStatistics
@@ -384,7 +538,7 @@ namespace Backtrace.Unity
             }
             BacktraceDatabaseRecord record = null;
 
-            if (Database != null)
+            if (Database != null && Database.Enabled())
             {
                 yield return new WaitForEndOfFrame();
                 if (EnablePerformanceStatistics)
@@ -406,27 +560,36 @@ namespace Backtrace.Unity
 
                     if (record.Duplicated)
                     {
+                        record.Unlock();
                         yield break;
                     }
                 }
+                else
+                {
+                    yield break;
+                }
             }
-
-            yield return new WaitForEndOfFrame();
             if (EnablePerformanceStatistics)
             {
                 stopWatch.Restart();
             }
             // avoid serializing data twice
             // if record is here we should try to send json data that are available in record
-            // otherwise we can still use BacktraceData.ToJson().            
+            // otherwise we can still use BacktraceData.ToJson().       
             string json = record != null
                 ? record.BacktraceDataJson()
                 : data.ToJson();
+
 
             if (EnablePerformanceStatistics)
             {
                 stopWatch.Stop();
                 queryAttributes["performance.json"] = stopWatch.GetMicroseconds();
+            }
+            yield return new WaitForEndOfFrame();
+            if (string.IsNullOrEmpty(json))
+            {
+                yield break;
             }
 
             //backward compatibility 
@@ -445,18 +608,15 @@ namespace Backtrace.Unity
             {
                 if (record != null)
                 {
-                    record.Dispose();
-                    if (result.Status == BacktraceResultStatus.Ok && Database != null)
+                    record.Unlock();
+                    if (Database != null && result.Status != BacktraceResultStatus.ServerError && result.Status != BacktraceResultStatus.NetworkError)
                     {
                         Database.Delete(record);
                     }
                 }
                 //check if there is more errors to send
                 //handle inner exception
-                HandleInnerException(report, (BacktraceResult innerResult) =>
-                {
-                    result.InnerExceptionResult = innerResult;
-                });
+                HandleInnerException(report);
 
                 if (sendCallback != null)
                 {
@@ -464,6 +624,7 @@ namespace Backtrace.Unity
                 }
             }));
         }
+
 
         /// <summary>
         /// Collect additional report information from client and convert report to backtrace data
@@ -488,14 +649,22 @@ namespace Backtrace.Unity
 
             report.AssignSourceCodeToReport(sourceCode);
 
-            var reportAttributes = new Dictionary<string, string>();
-            // extend client attributes with native attributes
+            // pass copy of dictionary to prevent overriding client attributes
+            var result = report.ToBacktraceData(null, GameObjectDepth);
+
+            // add native attributes to client report
             if (_nativeClient != null)
             {
-                reportAttributes = _nativeClient.GetAttributes();
+                _nativeClient.GetAttributes(result.Attributes.Attributes);
             }
 
-            return report.ToBacktraceData(reportAttributes, GameObjectDepth);
+            // apply client attributes
+            foreach (var attribute in _clientAttributes)
+            {
+                result.Attributes.Attributes[attribute.Key] = attribute.Value;
+            }
+
+            return result;
         }
 
 #if UNITY_ANDROID
@@ -505,6 +674,11 @@ namespace Backtrace.Unity
         /// <param name="stackTrace">Main thread stack trace</param>
         internal void OnAnrDetected(string stackTrace)
         {
+            if (!Enabled)
+            {
+                Debug.LogWarning("Please enable BacktraceClient first.");
+                return;
+            }
             const string anrMessage = "ANRException: Blocked thread detected";
             _backtraceLogManager.Enqueue(new BacktraceUnityMessage(anrMessage, stackTrace, LogType.Error));
             var hang = new BacktraceUnhandledException(anrMessage, stackTrace);
@@ -513,7 +687,7 @@ namespace Backtrace.Unity
 #endif
 
         /// <summary>
-        /// Handle Untiy unhandled exceptions
+        /// Handle Unity unhandled exceptions
         /// </summary>
         private void CaptureUnityMessages()
         {
@@ -521,8 +695,32 @@ namespace Backtrace.Unity
             if (Configuration.HandleUnhandledExceptions || Configuration.NumberOfLogs != 0)
             {
                 Application.logMessageReceived += HandleUnityMessage;
+#if UNITY_ANDROID || UNITY_IOS
+                Application.lowMemory += HandleLowMemory;
+#endif
             }
         }
+
+#if UNITY_ANDROID || UNITY_IOS
+        internal void HandleLowMemory()
+        {
+            if (!Enabled)
+            {
+                Debug.LogWarning("Please enable BacktraceClient first.");
+                return;
+            }
+            const string lowMemoryMessage = "OOMException: Out of memory detected.";
+            _backtraceLogManager.Enqueue(new BacktraceUnityMessage(lowMemoryMessage, string.Empty, LogType.Error));
+
+            // try to send report about OOM from managed layer if native layer is disabled.
+            bool nativeSendResult = _nativeClient != null ? _nativeClient.OnOOM() : false;
+            if (!nativeSendResult)
+            {
+                var oom = new BacktraceUnhandledException(lowMemoryMessage, string.Empty);
+                SendUnhandledException(oom);
+            }
+        }
+#endif
 
         /// <summary>
         /// Catch Unity logger data and create Backtrace reports for log type that represents exception or error
@@ -532,29 +730,83 @@ namespace Backtrace.Unity
         /// <param name="type">log type</param>
         internal void HandleUnityMessage(string message, string stackTrace, LogType type)
         {
+            if (!Enabled)
+            {
+                return;
+            }
             var unityMessage = new BacktraceUnityMessage(message, stackTrace, type);
             _backtraceLogManager.Enqueue(unityMessage);
             if (Configuration.HandleUnhandledExceptions && unityMessage.IsUnhandledException())
             {
-                var exception = new BacktraceUnhandledException(unityMessage.Message, unityMessage.StackTrace);
-                SendUnhandledException(exception);
+                BacktraceUnhandledException exception = null;
+                var invokeSkipApi = true;
+
+                // detect sampling flow
+                // we should apply sampling only to unhandled exceptions that are type LogType == Error
+                // log type error won't provide full exception information
+                if (type == LogType.Error && SamplingShouldSkip())
+                {
+                    if (SkipReport != null || Configuration.ReportFilterType.HasFlag(ReportFilterType.UnhandledException))
+                    {
+                        exception = new BacktraceUnhandledException(unityMessage.Message, unityMessage.StackTrace);
+                        if (ShouldSkipReport(ReportFilterType.UnhandledException, exception, string.Empty))
+                        {
+                            return;
+                        }
+                        invokeSkipApi = false;
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+
+                if (exception == null)
+                {
+                    exception = new BacktraceUnhandledException(unityMessage.Message, unityMessage.StackTrace);
+                }
+
+                SendUnhandledException(exception, invokeSkipApi);
             }
         }
 
-        private void SendUnhandledException(BacktraceUnhandledException exception)
+        /// <summary>
+        /// Skip sending report when sampling hit. This feature is enabled only for unhandled exception handler
+        /// </summary>
+        /// <returns>True, when client should skip report, otherwise false.</returns>
+        private bool SamplingShouldSkip()
+        {
+            // Sampling won't work in Editor mode - from editor we're allowing to send all type
+            // of possible errors.
+#if UNITY_EDITOR
+            return false;
+#else
+            if (!Configuration || Configuration.Sampling == 1)
+            {
+                return false;
+            }
+            return UnityEngine.Random.Range(0f, 1f) > Configuration.Sampling;
+#endif
+        }
+
+        private void SendUnhandledException(BacktraceUnhandledException exception, bool invokeSkipApi = true)
         {
             if (OnUnhandledApplicationException != null)
             {
                 OnUnhandledApplicationException.Invoke(exception);
             }
-            if (ShouldSendReport(exception, null, null))
+            if (ShouldSendReport(exception, null, null, invokeSkipApi))
             {
                 SendReport(new BacktraceReport(exception));
             }
         }
 
-        private bool ShouldSendReport(Exception exception, List<string> attachmentPaths, Dictionary<string, string> attributes)
+        private bool ShouldSendReport(Exception exception, List<string> attachmentPaths, Dictionary<string, string> attributes, bool invokeSkipApi = true)
         {
+            if (!Enabled)
+            {
+                return false;
+            }
             // guess report type
             var filterType = ReportFilterType.Exception;
             if (exception is BacktraceUnhandledException)
@@ -565,7 +817,7 @@ namespace Backtrace.Unity
             }
 
 
-            if (ShouldSkipReport(filterType, exception, string.Empty))
+            if (invokeSkipApi && ShouldSkipReport(filterType, exception, string.Empty))
             {
                 return false;
             }
@@ -640,12 +892,12 @@ namespace Backtrace.Unity
         /// if inner exception exists, client should send report twice - one with current exception, one with inner exception
         /// </summary>
         /// <param name="report">current report</param>
-        private void HandleInnerException(BacktraceReport report, Action<BacktraceResult> callback)
+        private void HandleInnerException(BacktraceReport report)
         {
             var innerExceptionReport = report.CreateInnerReport();
             if (innerExceptionReport != null && ShouldSendReport(innerExceptionReport))
             {
-                SendReport(innerExceptionReport, callback);
+                SendReport(innerExceptionReport);
             }
         }
 
